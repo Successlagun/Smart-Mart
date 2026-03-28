@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Smart Mart Management</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        body { background-color: #f1f5f9; font-family: sans-serif; }
+        .navbar { background: #0f172a; color: white; padding: 15px; }
+        .card { border: none; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .stat-card { border-top: 4px solid #3b82f6; }
+        .low-stock { background-color: #fee2e2 !important; color: #b91c1c; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <nav class="navbar mb-4"><div class="container"><h4><i class="fas fa-cash-register me-2"></i> SMART MART MANAGEMENT</h4></div></nav>
+    <div class="container">
+        <div class="row mb-4">
+            <div class="col-md-4"><div class="card stat-card p-4"><small class="text-muted fw-bold text-uppercase">Total Revenue</small><h2 id="rev" class="text-primary fw-bold">Rs 0.00</h2></div></div>
+            <div class="col-md-4"><div class="card stat-card p-4" style="border-top-color: #10b981;"><small class="text-muted fw-bold text-uppercase">Items Sold</small><h2 id="sold" class="text-success fw-bold">0 Pcs</h2></div></div>
+            <div class="col-md-4"><div class="card stat-card p-4" style="border-top-color: #f59e0b;"><small class="text-muted fw-bold text-uppercase">Most Sold Item</small><h2 id="most-sold" class="text-warning fw-bold">---</h2></div></div>
+        </div>
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card p-4 mb-4">
+                    <h5 class="mb-3">Add New Product</h5>
+                    <input type="text" id="name" class="form-control mb-2" placeholder="Product Name">
+                    <input type="number" id="price" class="form-control mb-2" placeholder="Price per Piece">
+                    <div class="row g-2 mb-3">
+                        <div class="col-6"><input type="number" id="cases" class="form-control" placeholder="Cases"></div>
+                        <div class="col-6"><input type="number" id="ppc" class="form-control" placeholder="Pcs/Case"></div>
+                    </div>
+                    <button onclick="save()" class="btn btn-dark w-100 fw-bold">SAVE TO STOCK</button>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="card p-4">
+                    <div class="d-flex justify-content-between mb-3 align-items-center"><h5>Current Inventory</h5><button onclick="load()" class="btn btn-sm btn-outline-secondary">Refresh</button></div>
+                    <table class="table align-middle">
+                        <thead class="table-light"><tr><th>Product</th><th>Stock</th><th>Sell</th><th>Action</th></tr></thead>
+                        <tbody id="list"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.onload = load;
+
+        function load() {
+            fetch('/get_products').then(res => res.json()).then(data => {
+                let list = document.getElementById('list');
+                list.innerHTML = '';
+                data.forEach(p => {
+                    let isLow = p.total_pieces < 10;
+                    list.innerHTML += `<tr class="${isLow ? 'low-stock' : ''}">
+                        <td><b>${p.name}</b><br><small>Rs ${p.price}/pc</small></td>
+                        <td><span class="badge ${isLow ? 'bg-danger' : 'bg-primary'}">${p.total_pieces} Pcs</span></td>
+                        <td>
+                            <div class="input-group input-group-sm" style="width: 160px;">
+                                <input type="number" id="qty-${p.id}" class="form-control text-center" value="1">
+                                <button onclick="payChoice(${p.id}, 'piece')" class="btn btn-primary">Pc</button>
+                                <button onclick="payChoice(${p.id}, 'case')" class="btn btn-info text-white">Box</button>
+                            </div>
+                        </td>
+                        <td><button onclick="del(${p.id})" class="btn text-danger border-0 p-0"><i class="fas fa-trash"></i></button></td>
+                    </tr>`;
+                });
+                updateStats();
+            });
+        }
+
+        function payChoice(id, mode) {
+            Swal.fire({
+                title: 'Payment Method',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Cash',
+                cancelButtonText: 'Digital',
+                confirmButtonColor: '#10b981',
+                cancelButtonColor: '#3b82f6'
+            }).then((result) => {
+                let type = result.isConfirmed ? 'Cash' : 'Digital';
+                processSale(id, mode, type);
+            });
+        }
+
+        function processSale(id, mode, payType) {
+            let qty = document.getElementById('qty-'+id).value;
+            Swal.fire({ title: 'Processing Transaction...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+
+            fetch('/process_payment', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ id, qty, mode, payment_type: payType })
+            })
+            .then(res => res.json())
+            .then(res => {
+                Swal.close();
+                if(res.error) Swal.fire('Error', res.error, 'error');
+                else {
+                    Swal.fire({ title: 'Success!', html: `<b>Bill:</b> Rs ${res.bill}<br><b>Paid via:</b> ${res.method}`, icon: 'success' });
+                    load();
+                }
+            })
+            .catch(err => { Swal.close(); Swal.fire('System Error', 'Could not connect', 'error'); });
+        }
+
+        function save() {
+            let data = { name: document.getElementById('name').value, price: document.getElementById('price').value, cases: document.getElementById('cases').value, ppc: document.getElementById('ppc').value };
+            if(!data.name || !data.price) return;
+            fetch('/add_product', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) }).then(() => { load(); document.getElementById('name').value=''; document.getElementById('price').value=''; document.getElementById('cases').value=''; document.getElementById('ppc').value=''; });
+        }
+
+        function updateStats() {
+            fetch('/get_stats').then(res => res.json()).then(data => {
+                document.getElementById('rev').innerText = 'Rs ' + data.revenue;
+                document.getElementById('sold').innerText = data.sold + ' Pcs';
+                document.getElementById('most-sold').innerText = data.most_sold;
+            });
+        }
+
+        function del(id) { fetch('/delete_product/'+id, {method:'DELETE'}).then(() => load()); }
+    </script>
+</body>
+</html>
